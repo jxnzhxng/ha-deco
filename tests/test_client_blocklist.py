@@ -1,26 +1,16 @@
 """Tests for the experimental single-client block list action."""
 
 import base64
-from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
 
-from homeassistant.config_entries import ConfigEntryState
-from homeassistant.core import Context
-from homeassistant.exceptions import ServiceValidationError
-from homeassistant.exceptions import Unauthorized
 import pytest
 import voluptuous as vol
 
 from custom_components.tplink_deco.api import TplinkDecoApi
-from custom_components.tplink_deco.const import COORDINATOR_CLIENTS_KEY
-from custom_components.tplink_deco.const import COORDINATOR_DECOS_KEY
-from custom_components.tplink_deco.const import DOMAIN
-from custom_components.tplink_deco.const import SERVICE_SET_CLIENT_BLOCKED
 from custom_components.tplink_deco.exceptions import TimeoutException
 from custom_components.tplink_deco.exceptions import UnexpectedApiException
 from custom_components.tplink_deco.services import SET_CLIENT_BLOCKED_SCHEMA
-from custom_components.tplink_deco.services import async_setup_services
 
 MAC = "02:00:00:00:00:01"
 EMPTY_LIST = {"result": {"client_list": {}}}
@@ -106,41 +96,3 @@ async def test_success_response_without_list_change_is_not_success(api):
 def test_invalid_target_is_rejected(mac):
     with pytest.raises(vol.Invalid):
         SET_CLIENT_BLOCKED_SCHEMA({"mac": mac, "blocked": True})
-
-
-@pytest.mark.asyncio
-async def test_only_admin_can_call_action_and_unknown_client_can_be_unblocked():
-    set_blocked = AsyncMock(return_value=True)
-    entry = SimpleNamespace(entry_id="test-entry", state=ConfigEntryState.LOADED)
-    hass = MagicMock()
-    hass.config_entries.async_entries.return_value = [entry]
-    hass.auth.async_get_user = AsyncMock(return_value=SimpleNamespace(is_admin=False))
-    hass.async_run_hass_job.side_effect = lambda job, call: job.target(call)
-    hass.data = {
-        DOMAIN: {
-            entry.entry_id: {
-                COORDINATOR_DECOS_KEY: SimpleNamespace(
-                    api=SimpleNamespace(async_set_client_blocked=set_blocked)
-                ),
-                COORDINATOR_CLIENTS_KEY: SimpleNamespace(data={}),
-            }
-        }
-    }
-    async_setup_services(hass)
-    registration = hass.services.async_register.call_args
-    domain, service, handler = registration.args[:3]
-    assert (domain, service) == (DOMAIN, SERVICE_SET_CLIENT_BLOCKED)
-    call = SimpleNamespace(
-        data={"mac": MAC, "blocked": True}, context=Context(user_id="id")
-    )
-
-    with pytest.raises(Unauthorized):
-        await handler(call)
-    hass.auth.async_get_user.return_value.is_admin = True
-    with pytest.raises(ServiceValidationError, match="known client"):
-        await handler(call)
-    set_blocked.assert_not_awaited()
-
-    call.data["blocked"] = False
-    assert await handler(call) == {"blocked": False, "changed": True}
-    set_blocked.assert_awaited_once_with(MAC, False, "ha-deco test client")

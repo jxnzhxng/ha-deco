@@ -18,17 +18,12 @@ from homeassistant.core import ServiceResponse
 from homeassistant.core import SupportsResponse
 from homeassistant.exceptions import ServiceValidationError
 import homeassistant.helpers.config_validation as cv
-from homeassistant.helpers.service import async_register_admin_service
 from homeassistant.util import dt as dt_util
 import voluptuous as vol
 
-from .const import CLIENT_BLOCK_CONTROLS_KEY
-from .const import COORDINATOR_CLIENTS_KEY
 from .const import COORDINATOR_DECOS_KEY
 from .const import DOMAIN
 from .const import SERVICE_DOWNLOAD_SYSTEM_LOG
-from .const import SERVICE_RENAME_CLIENT
-from .const import SERVICE_SET_CLIENT_BLOCKED
 from .exceptions import EmptyDataException
 from .exceptions import ForbiddenException
 from .exceptions import LoginForbiddenException
@@ -36,7 +31,6 @@ from .exceptions import LoginInvalidException
 from .exceptions import TimeoutException
 from .exceptions import TransientConnectionException
 from .exceptions import UnexpectedApiException
-from .exceptions import UnsupportedFirmwareException
 from .system_log import SystemLogLevel
 
 ATTR_FILENAME = "filename"
@@ -151,59 +145,6 @@ def _write_text(path: str, text: str) -> None:
 
 
 def async_setup_services(hass: HomeAssistant) -> None:
-    async def async_set_client_blocked(call: ServiceCall) -> ServiceResponse:
-        entry = async_get_target_entry(hass, call.data.get(ATTR_CONFIG_ENTRY_ID))
-        data = hass.data[DOMAIN][entry.entry_id]
-        mac = call.data[ATTR_MAC]
-        blocked = call.data[ATTR_BLOCKED]
-        name = "ha-deco test client"
-        if blocked:
-            clients = data[COORDINATOR_CLIENTS_KEY].data or {}
-            client = next(
-                (
-                    client
-                    for client_mac, client in clients.items()
-                    if client_mac.upper().replace("-", ":") == mac
-                ),
-                None,
-            )
-            if client is None:
-                raise ServiceValidationError(
-                    "Select a known client on this Deco network to block"
-                )
-            name = client.name or name
-
-        api = data[COORDINATOR_DECOS_KEY].api
-        try:
-            changed = await api.async_set_client_blocked(mac, blocked, name)
-        except UnsupportedFirmwareException as err:
-            raise ServiceValidationError(str(err)) from None
-        except CLIENT_ACTION_ERRORS:
-            if (controls := data.get(CLIENT_BLOCK_CONTROLS_KEY)) is not None:
-                controls.mark_status_unknown()
-            raise ServiceValidationError(
-                "Deco did not verify the requested client block state. "
-                "Check the block list in the Deco app before retrying."
-            ) from None
-        if (controls := data.get(CLIENT_BLOCK_CONTROLS_KEY)) is not None:
-            controls.apply_verified_state(mac, blocked, name)
-        return {ATTR_BLOCKED: blocked, "changed": changed}
-
-    async def async_rename_client(call: ServiceCall) -> ServiceResponse:
-        entry = async_get_target_entry(hass, call.data.get(ATTR_CONFIG_ENTRY_ID))
-        api = hass.data[DOMAIN][entry.entry_id][COORDINATOR_DECOS_KEY].api
-        name = call.data[ATTR_NAME]
-        try:
-            changed = await api.async_rename_client(call.data[ATTR_MAC], name)
-        except UnsupportedFirmwareException as err:
-            raise ServiceValidationError(str(err)) from None
-        except CLIENT_ACTION_ERRORS:
-            raise ServiceValidationError(
-                "Deco did not verify the client rename. Check that the client is "
-                "connected and check its name in the Deco app before retrying."
-            ) from None
-        return {ATTR_NAME: name, "changed": changed}
-
     async def async_download_system_log(call: ServiceCall) -> ServiceResponse:
         entry = async_get_target_entry(hass, call.data.get(ATTR_CONFIG_ENTRY_ID))
         filename = _system_log_filename(call.data.get(ATTR_FILENAME))
@@ -222,21 +163,5 @@ def async_setup_services(hass: HomeAssistant) -> None:
         SERVICE_DOWNLOAD_SYSTEM_LOG,
         async_download_system_log,
         schema=DOWNLOAD_SYSTEM_LOG_SCHEMA,
-        supports_response=SupportsResponse.OPTIONAL,
-    )
-    async_register_admin_service(
-        hass,
-        DOMAIN,
-        SERVICE_RENAME_CLIENT,
-        async_rename_client,
-        schema=RENAME_CLIENT_SCHEMA,
-        supports_response=SupportsResponse.OPTIONAL,
-    )
-    async_register_admin_service(
-        hass,
-        DOMAIN,
-        SERVICE_SET_CLIENT_BLOCKED,
-        async_set_client_blocked,
-        schema=SET_CLIENT_BLOCKED_SCHEMA,
         supports_response=SupportsResponse.OPTIONAL,
     )

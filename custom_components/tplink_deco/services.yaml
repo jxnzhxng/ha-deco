@@ -11,53 +11,6 @@ reboot_deco:
           integration: tplink_deco
           manufacturer: TP-Link Deco
           multiple: true
-set_client_blocked:
-  name: Set client blocked (experimental)
-  description: >-
-    Set the Deco block list state for one client. Requires an administrator.
-    Test only with a device you can safely disconnect.
-  fields:
-    config_entry_id:
-      name: Deco
-      description: Required when more than one Deco integration entry is loaded.
-      selector:
-        config_entry:
-          integration: tplink_deco
-    mac:
-      name: Client MAC address
-      required: true
-      example: "02:00:00:00:00:01"
-      selector:
-        text:
-    blocked:
-      name: Block client
-      description: Turn on to block the client; turn off to unblock it.
-      required: true
-      selector:
-        boolean:
-rename_client:
-  name: Rename client (experimental)
-  description: >-
-    Change one connected client's name on the Deco. Requires an administrator
-    and supported firmware. The Home Assistant entity ID is not changed.
-  fields:
-    config_entry_id:
-      name: Deco
-      description: Required when more than one Deco integration entry is loaded.
-      selector:
-        config_entry:
-          integration: tplink_deco
-    mac:
-      name: Client MAC address
-      required: true
-      selector:
-        text:
-    name:
-      name: New name
-      description: A printable name, up to 32 UTF-8 bytes.
-      required: true
-      selector:
-        text:
 download_system_log:
   name: Download system log
   description: >-

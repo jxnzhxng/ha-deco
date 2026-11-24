@@ -8,6 +8,7 @@ https://github.com/dkwolf1/ha-deco
 import asyncio
 from datetime import timedelta
 import logging
+import os
 from typing import Any
 from typing import cast
 
@@ -29,15 +30,12 @@ from homeassistant.helpers import restore_state
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.device_registry import DeviceEntry
+from homeassistant.helpers.service import async_register_admin_service
 import voluptuous as vol
 
 from .api import TplinkDecoApi
 from .api import normalize_name
-from .client_controls import async_setup_client_block_controls
-from .client_controls import async_setup_client_rename_controls
 from .const import ATTR_DEVICE_TYPE
-from .const import CLIENT_BLOCK_CONTROLS_KEY
-from .const import CLIENT_RENAME_CONTROLS_KEY
 from .const import CONF_CLIENT_POSTFIX
 from .const import CONF_CLIENT_PREFIX
 from .const import CONF_DECO_POSTFIX
@@ -72,12 +70,16 @@ from .coordinator import TpLinkDecoData
 from .coordinator import TplinkDecoClientUpdateCoordinator
 from .coordinator import TplinkDecoUpdateCoordinator
 from .mobile import TplinkDecoMobileDataUpdateCoordinator
+from .log_redaction import install as install_log_redaction
 from .services import async_setup_services
 from .syslog_forwarder import async_remove_syslog_store
 from .syslog_forwarder import async_setup_syslog_forwarder
 from .wireless import TplinkDecoWirelessUpdateCoordinator
 
 _LOGGER: logging.Logger = logging.getLogger(__name__)
+# config_flow also imports this file as the module `.__init__`, which has no
+# __path__, so locate the package from the file.
+install_log_redaction(__package__, [os.path.dirname(__file__)])
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
@@ -290,14 +292,6 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
     mobile_coordinator = data[COORDINATOR_MOBILE_KEY]
     wireless_coordinator = data[COORDINATOR_WIRELESS_KEY]
 
-    controls = await async_setup_client_block_controls(hass, config_entry, data)
-    if controls is not None:
-        data[CLIENT_BLOCK_CONTROLS_KEY] = controls
-    if (
-        rename_controls := async_setup_client_rename_controls(hass, config_entry, data)
-    ) is not None:
-        data[CLIENT_RENAME_CONTROLS_KEY] = rename_controls
-
     await hass.config_entries.async_forward_entry_setups(config_entry, PLATFORMS)
 
     config_entry.async_create_background_task(
@@ -338,7 +332,8 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
             macs.append(mac)
         await deco_coordinator.api.async_reboot_decos(macs)
 
-    hass.services.async_register(
+    async_register_admin_service(
+        hass,
         DOMAIN,
         SERVICE_REBOOT_DECO,
         async_reboot_deco,

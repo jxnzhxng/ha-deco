@@ -1,26 +1,17 @@
 """Tests for renaming one connected Deco client."""
 
 import base64
-from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
 
-from homeassistant.config_entries import ConfigEntryState
-from homeassistant.core import Context
-from homeassistant.exceptions import ServiceValidationError
-from homeassistant.exceptions import Unauthorized
 import pytest
 import voluptuous as vol
 
 from custom_components.tplink_deco.api import TplinkDecoApi
-from custom_components.tplink_deco.const import COORDINATOR_DECOS_KEY
-from custom_components.tplink_deco.const import DOMAIN
-from custom_components.tplink_deco.const import SERVICE_RENAME_CLIENT
 from custom_components.tplink_deco.exceptions import TimeoutException
 from custom_components.tplink_deco.exceptions import UnexpectedApiException
 from custom_components.tplink_deco.exceptions import UnsupportedFirmwareException
 from custom_components.tplink_deco.services import RENAME_CLIENT_SCHEMA
-from custom_components.tplink_deco.services import async_setup_services
 
 MAC = "02:00:00:00:00:01"
 NEW_NAME = "Caf\u00e9 display"
@@ -135,48 +126,3 @@ async def test_timed_out_write_is_not_retried(api):
 def test_schema_refuses_invalid_names(name):
     with pytest.raises(vol.Invalid):
         RENAME_CLIENT_SCHEMA({"mac": MAC, "name": name})
-
-
-@pytest.mark.asyncio
-async def test_action_requires_admin_and_targets_one_mesh():
-    hass = MagicMock()
-    entries = {
-        key: SimpleNamespace(entry_id=key, state=ConfigEntryState.LOADED, domain=DOMAIN)
-        for key in ("first", "second")
-    }
-    rename = {key: AsyncMock(return_value=True) for key in entries}
-    hass.config_entries.async_entries.return_value = list(entries.values())
-    hass.config_entries.async_get_entry.side_effect = entries.get
-    hass.auth.async_get_user = AsyncMock(return_value=SimpleNamespace(is_admin=False))
-    hass.async_run_hass_job.side_effect = lambda job, call: job.target(call)
-    hass.data = {
-        DOMAIN: {
-            key: {
-                COORDINATOR_DECOS_KEY: SimpleNamespace(
-                    api=SimpleNamespace(async_rename_client=method)
-                )
-            }
-            for key, method in rename.items()
-        }
-    }
-    async_setup_services(hass)
-    handler = next(
-        call.args[2]
-        for call in hass.services.async_register.call_args_list
-        if call.args[:2] == (DOMAIN, SERVICE_RENAME_CLIENT)
-    )
-    call = SimpleNamespace(
-        data={"mac": MAC, "name": NEW_NAME}, context=Context(user_id="user")
-    )
-    with pytest.raises(Unauthorized):
-        await handler(call)
-    hass.auth.async_get_user.return_value.is_admin = True
-    with pytest.raises(ServiceValidationError, match="config_entry_id"):
-        await handler(call)
-    for method in rename.values():
-        method.assert_not_awaited()
-
-    call.data["config_entry_id"] = "second"
-    assert await handler(call) == {"name": NEW_NAME, "changed": True}
-    rename["second"].assert_awaited_once_with(MAC, NEW_NAME)
-    rename["first"].assert_not_awaited()
